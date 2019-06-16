@@ -104,6 +104,8 @@ class App:
             menu.add_command(label=add_choices.pop())
         while len(delete_choices) > 0:
             menu.delete(menu.index(delete_choices.pop()))
+        if len(add_choices)+len(delete_choices) > 0:
+            self.connection_device.set(new_choices[0])
 
         self.ports = available_ports
 
