@@ -2,8 +2,7 @@ import serial.tools.list_ports as list_ports
 import serial
 
 def serial_listPorts():
-    ports = list(map(lambda p:p.device, list_ports.comports(include_links=False)))
-    print("Found following ports connected: ", ports)
+    ports = list(map(lambda p:{'serial_number':p.pid,'port_no':p.device}, filter(lambda p: p.device.find('usb') > 0 ,list_ports.comports(include_links=False))))
     return ports
 
 def serial_get_status(ser_instance):
