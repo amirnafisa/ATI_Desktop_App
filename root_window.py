@@ -13,10 +13,12 @@ class App:
         quit_button = Button(self.frame, text="QUIT", command=self.frame.quit)
         quit_button.pack(side="left")
 
-        choices = serial_listPorts()
+        self.choices = serial_listPorts()
         self.connection_port = StringVar(root)
-        listports = OptionMenu(root, self.connection_port, *choices)
-        listports.pack(side="top")
+        if len(self.choices) == 0:
+            self.choices.append(None)
+        self.listports = OptionMenu(root, self.connection_port, self.choices[0], *self.choices[1:])
+        self.listports.pack(side="top")
 
         # link function to change dropdown
         self.connection_port.trace('w', self.change_listports)
@@ -34,6 +36,8 @@ class App:
         # attach text box to scrollbar
         self.log.config(yscrollcommand=main_scrollbar.set)
         main_scrollbar.config(command=self.log.yview)
+
+        self.update_ports()
 
     # on change dropdown value
     def change_listports(self, *args):
@@ -58,6 +62,18 @@ class App:
             self.log.insert('0.0', serBuffer)
             self.frame.after(10, self.read) # check serial again soon
 
+    def update_ports(self):
+        menu = self.listports["menu"]
+        new_choices = serial_listPorts()
+        add_choices = set(new_choices) - set(self.choices)
+        delete_choices = set(self.choices) - set(new_choices)
+        self.choices = new_choices
+        while len(add_choices) > 0:
+            menu.add_command(label=add_choices.pop())
+        while len(delete_choices) > 0:
+            menu.delete(menu.index(delete_choices.pop()))
+
+        self.frame.after(10, self.update_ports)
 
 
 root = Tk()
