@@ -1,139 +1,127 @@
-from tkinter import Tk, Frame, Button, OptionMenu, StringVar, Scrollbar, Text, Label
+from tkinter import Tk
 from serial_interface import *
-from main_app_features import *
+from dashboard_frame import *
+from status import *
 
 class App:
     def __init__(self, master):
-        set_app_title(master, "ATI Interface")
+        self.set_app_title(master, "ATI Interface")
 
-        self.saving_status = False
+        self.status = ATIStatus()
 
-        self.frame = Frame(master)
-        self.frame.pack()
+        self.main_frame = ATIDashboard(master, expand=1)
+        self.menu_frame = ATIDashboard(master)
+        self.status_frame = ATIDashboard(master)
 
-        self.status_label = Label(self.frame, text='disconnected')
-        self.status_label.pack(side='bottom')
+        self.status_label = ATILabel(self.status_frame.frame, text='disconnected')
 
-        # make a scrollbar
-        main_scrollbar = Scrollbar(self.frame)
-        main_scrollbar.pack(side='right', fill='y')
+        log = ATILog(self.main_frame.frame, scrollbar=True)
 
-        quit_button = Button(self.frame, text="QUIT", command=self.frame.quit)
-        quit_button.pack(side="left")
+        quit_button = ATIButton(self.menu_frame.frame, text="QUIT", btn_response=master.quit)
 
-        self.ports = serial_listPorts()
-        choices = []
-        for p in self.ports:
-            if p['serial_number'] is not None:
-                choices.append(p['serial_number'])
-        if len(choices) > 0:
-            default_choice = choices[0]
-        else:
-            default_choice = None
-        self.connection_device = StringVar(root)
-        self.listports = OptionMenu(root, self.connection_device, default_choice, *choices[1:])
-        self.listports.pack(side="top")
+        connect_button = ATIButton(self.menu_frame.frame, text="Connect", btn_response=self.connect)
 
-        # link function to change dropdown
-        self.connection_device.trace('w', self.change_listports)
+        disconnect_button = ATIButton(self.menu_frame.frame, text="Disconnect", btn_response=self.disconnect)
 
-        connect = Button(self.frame, text="Connect", command=self.connect)
-        connect.pack(side="top")
+        save_session = ATIButton(self.menu_frame.frame, text="Save", btn_response=self.save)
 
-        disconnect = Button(self.frame, text="Disconnect", command=self.disconnect)
-        disconnect.pack(side="top")
+        self.status.ports = serial_listPorts()
 
-        save_session = Button(self.frame, text="Save", command=self.save)
-        save_session.pack(side="top")
+        choices = list(map(lambda pd: pd.device, self.status.ports))
 
-        # make a text box to put the serial output
-        self.log = Text(self.frame)
-        self.log.pack()
-
-        # attach text box to scrollbar
-        self.log.config(yscrollcommand=main_scrollbar.set)
-        main_scrollbar.config(command=self.log.yview)
+        self.listports = ATIDropdown(self.menu_frame.frame, choices)
 
         self.update_ports()
 
-    # on change dropdown value
-    def change_listports(self, *args):
-        print( "Changing",self.connection_device.get() )
+    def set_app_title(self, master, title):
+        top_level = master.winfo_toplevel()
+        top_level.title(title)
 
     def connect(self):
-        selected_device = self.connection_device.get()
-        port = None
-        for p in self.ports:
-            if p['serial_number'] is not None:
-                if int(p['serial_number']) == int(selected_device):
-                    port = p['port_no']
-                    break
-        print("Connection requested!",selected_device,port)
-        self.serial_instance = serial_connect(port, 115200)
-        self.connection_status = serial_get_status(self.serial_instance)
-        print("Connection established: ", self.serial_instance)
-        self.read()
-        if serial_get_status(self.serial_instance):
-            self.status_label['text'] = 'connected'
+        selected_device = self.listports.connect_variable.get()
+        port = get_port_from_device_id(selected_device, self.status.ports)
+        if not port:
+            print("ERR: Port for device ", selected_device," not found...")
+            return
+        print("LOG: Connection requested to device ",port.pid," at port ",port.device,"...")
+
+        self.serial_instance = ATISerial(port.device, 115200)
+
+        if self.serial_instance.status:
+            self.status.connection_status = True
+            print("LOG: Connection established...")
+            self.read()
+            self.status_label.LabelUpdate(new_text='connected', new_background='green')
 
     def disconnect(self):
-        print("Disconnection requested!")
-        self.connection_status = serial_disconnect(self.serial_instance)
-        if not serial_get_status(self.serial_instance):
-            self.status_label['text'] = 'disconnected'
+        selected_device = self.listports.connect_variable.get()
+        port = get_port_from_device_id(selected_device, self.status.ports)
+        if not port:
+            print("ERR: Port for device ", selected_device," not found...")
+            return
+        print("LOG: Requesting to disconnect device ",port.pid," at port ",port.device,"...")
+
+        serial_disconnect(self.serial_instance)
+
+        if not self.serial_instance.status:
+            self.status.connection_status = False
+            self.status_label.LabelUpdate(new_text='disconnected', new_background='red')
 
     def read(self):
-        serBuffer = serial_read(self.serial_instance)
+        serBuffer = self.serial_instance.serial_read()
         #add the line to the TOP of the log
-        if self.connection_status:
-            self.log.insert('0.0', serBuffer)
-            if self.saving_status and len(str(serBuffer)) > 5:
-                self.write_log2file(str(serBuffer))
-            self.frame.after(50, self.read) # check serial again soon
+        if self.serial_instance.status:
+            self.log.update(serBuffer)
+            if self.status.save_session and len(serBuffer) > 1:
+                self.write_log2file(serBuffer)
+            self.main_frame.frame.after(50, self.read) # check serial again soon
 
     def update_ports(self):
-        menu = self.listports["menu"]
-        available_ports = serial_listPorts()
+        old_menu = self.listports.dropdown["menu"]
+        old_ports = self.status.ports
+        self.status.ports = serial_listPorts()
         new_choices, old_choices = [], []
-        for p in available_ports:
-            new_choices.append(p['serial_number'])
-        for p in self.ports:
-            old_choices.append(p['serial_number'])
+        for p in self.status.ports:
+            new_choices.append(p.pid)
+        for p in old_ports:
+            old_choices.append(p.pid)
         add_choices = set(new_choices) - set(old_choices)
         delete_choices = set(old_choices) - set(new_choices)
         while len(add_choices) > 0:
             device = add_choices.pop()
-            menu.add_command(label=device, command=lambda v=device: self.connection_device.set(v))
+            menu.add_command(label=device, command=lambda v=device: self.listports.connect_variable.set(v))
         while len(delete_choices) > 0:
-            menu.delete(menu.index(delete_choices.pop()))
-        if len(add_choices)+len(delete_choices) > 0:
-            self.connection_device.set(new_choices[0])
+            device = delete_choices.pop()
+            selected_device = self.listports.connect_variable.get()
+            menu.delete(menu.index(device))
+            if selected_device == device:
+                self.listports.connect_variable.set(new_choices[0])
 
-        self.ports = available_ports
-
-        self.frame.after(10, self.update_ports)
+        self.main_frame.frame.after(10, self.update_ports)
 
     def save(self):
-        if not self.saving_status:
-            device = 0
-            for p in self.ports:
-                if p['port_no'] == self.serial_instance.port:
-                    device = p['serial_number']
-                    break
-            self.saving_status = True
-            self.save_filename = get_file_name()
-            with open(self.save_filename,'w') as f:
-                f.write('Device: '+str(device)+'\n')
+
+        if not self.status.connection_status:
+            print("ERR: No device connected...")
+            return
+
+        if not self.status.save_session:
+            self.status.filename = ATISaveFile()
+            port = get_port_from_port_id(self.serial_instance.port, self.status.ports)
+
+            self.status.save_session = True
+
+            with open(self.status.filename,'w') as f:
+                f.write('Device: '+str(port.pid)+'\n')
                 content=self.log.get("1.0","end")
                 for line in reversed(content.split('\n')):
                     print("L:",line)
                     f.write(line)
                     f.write('\n')
 
-
     def write_log2file(self, text):
         with open(self.save_filename,'a') as f:
-            print("T:",text)
+            print("TXT: ",text)
             f.write(text)
 
 root = Tk()
