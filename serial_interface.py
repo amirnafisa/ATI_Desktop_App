@@ -22,4 +22,4 @@ def serial_disconnect(ser_instance):
 
 def serial_read(ser_instance):
     if ser_instance.is_open:
-        return ser_instance.readline()
+        return ser_instance.readline().decode('utf-8')

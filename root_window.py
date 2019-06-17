@@ -24,11 +24,14 @@ class App:
         self.ports = serial_listPorts()
         choices = []
         for p in self.ports:
-            choices.append(p['serial_number'])
+            if p['serial_number'] is not None:
+                choices.append(p['serial_number'])
+        if len(choices) > 0:
+            default_choice = choices[0]
+        else:
+            default_choice = None
         self.connection_device = StringVar(root)
-        if len(choices) == 0:
-            choices.append(None)
-        self.listports = OptionMenu(root, self.connection_device, choices[0], *choices[1:])
+        self.listports = OptionMenu(root, self.connection_device, default_choice, *choices[1:])
         self.listports.pack(side="top")
 
         # link function to change dropdown
@@ -58,13 +61,13 @@ class App:
         print( "Changing",self.connection_device.get() )
 
     def connect(self):
-
         selected_device = self.connection_device.get()
         port = None
         for p in self.ports:
-            if int(p['serial_number']) == int(selected_device):
-                port = p['port_no']
-                break
+            if p['serial_number'] is not None:
+                if int(p['serial_number']) == int(selected_device):
+                    port = p['port_no']
+                    break
         print("Connection requested!",selected_device,port)
         self.serial_instance = serial_connect(port, 115200)
         self.connection_status = serial_get_status(self.serial_instance)
@@ -79,15 +82,13 @@ class App:
         if not serial_get_status(self.serial_instance):
             self.status_label['text'] = 'disconnected'
 
-        print("Printint text",self.log.get("1.0","end"))
-
     def read(self):
         serBuffer = serial_read(self.serial_instance)
         #add the line to the TOP of the log
         if self.connection_status:
             self.log.insert('0.0', serBuffer)
             if self.saving_status and len(str(serBuffer)) > 5:
-                self.write_log2file(self.log.get('current linestart','current lineend'))
+                self.write_log2file(str(serBuffer))
             self.frame.after(50, self.read) # check serial again soon
 
     def update_ports(self):
@@ -101,7 +102,8 @@ class App:
         add_choices = set(new_choices) - set(old_choices)
         delete_choices = set(old_choices) - set(new_choices)
         while len(add_choices) > 0:
-            menu.add_command(label=add_choices.pop())
+            device = add_choices.pop()
+            menu.add_command(label=device, command=lambda v=device: self.connection_device.set(v))
         while len(delete_choices) > 0:
             menu.delete(menu.index(delete_choices.pop()))
         if len(add_choices)+len(delete_choices) > 0:
@@ -122,14 +124,17 @@ class App:
             self.save_filename = get_file_name()
             with open(self.save_filename,'w') as f:
                 f.write('Device: '+str(device)+'\n')
-                f.write(self.log.get("1.0","end"))
-                f.write('\n')
+                content=self.log.get("1.0","end")
+                for line in reversed(content.split('\n')):
+                    print("L:",line)
+                    f.write(line)
+                    f.write('\n')
 
 
     def write_log2file(self, text):
         with open(self.save_filename,'a') as f:
+            print("T:",text)
             f.write(text)
-            f.write('\n')
 
 root = Tk()
 
